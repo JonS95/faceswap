@@ -6,8 +6,8 @@ import com.jons95.faceswap.ml.GeometricSwap
 
 sealed class SwapResult {
     data class Success(val bitmap: Bitmap) : SwapResult()
-    data class NoFaceInSource(val unused: Unit = Unit) : SwapResult()
-    data class NoFaceInTarget(val unused: Unit = Unit) : SwapResult()
+    data object NoFaceInSource : SwapResult()
+    data object NoFaceInTarget : SwapResult()
     data class Failed(val message: String) : SwapResult()
 }
 
@@ -16,9 +16,9 @@ class SwapPipeline(private val faceDetector: FaceDetector) {
 
     suspend fun run(sourceBitmap: Bitmap, targetBitmap: Bitmap): SwapResult {
         val sourceFace = faceDetector.detectLargestFace(sourceBitmap)
-            ?: return SwapResult.NoFaceInSource()
+            ?: return SwapResult.NoFaceInSource
         val targetFace = faceDetector.detectLargestFace(targetBitmap)
-            ?: return SwapResult.NoFaceInTarget()
+            ?: return SwapResult.NoFaceInTarget
 
         val output = GeometricSwap.swap(sourceBitmap, sourceFace, targetBitmap, targetFace)
             ?: return SwapResult.Failed("Could not align faces (missing eye/mouth landmarks).")

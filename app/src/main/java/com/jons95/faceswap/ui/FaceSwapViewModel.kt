@@ -52,28 +52,38 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
 
         viewModelScope.launch {
             val context = getApplication<Application>()
-            val outcome = withContext(Dispatchers.Default) {
-                val source = ImageUtils.loadBitmap(context, sourceUri)
-                val target = ImageUtils.loadBitmap(context, targetUri)
-                if (source == null || target == null) {
-                    SwapResult.Failed("Could not load one of the photos.")
-                } else {
-                    pipeline.run(source, target)
+            try {
+                val outcome = withContext(Dispatchers.Default) {
+                    val source = ImageUtils.loadBitmap(context, sourceUri)
+                    val target = ImageUtils.loadBitmap(context, targetUri)
+                    if (source == null || target == null) {
+                        SwapResult.Failed("Could not load one of the photos.")
+                    } else {
+                        pipeline.run(source, target)
+                    }
                 }
-            }
 
-            when (outcome) {
-                is SwapResult.Success -> _uiState.update {
-                    it.copy(isProcessing = false, resultBitmap = outcome.bitmap)
+                when (outcome) {
+                    is SwapResult.Success -> _uiState.update {
+                        it.copy(isProcessing = false, resultBitmap = outcome.bitmap)
+                    }
+                    is SwapResult.NoFaceInSource -> _uiState.update {
+                        it.copy(isProcessing = false, errorMessage = "No face detected in the source photo.")
+                    }
+                    is SwapResult.NoFaceInTarget -> _uiState.update {
+                        it.copy(isProcessing = false, errorMessage = "No face detected in the target photo.")
+                    }
+                    is SwapResult.Failed -> _uiState.update {
+                        it.copy(isProcessing = false, errorMessage = outcome.message)
+                    }
                 }
-                is SwapResult.NoFaceInSource -> _uiState.update {
-                    it.copy(isProcessing = false, errorMessage = "No face detected in the source photo.")
+            } catch (e: OutOfMemoryError) {
+                _uiState.update {
+                    it.copy(isProcessing = false, errorMessage = "Photos are too large. Try smaller images.")
                 }
-                is SwapResult.NoFaceInTarget -> _uiState.update {
-                    it.copy(isProcessing = false, errorMessage = "No face detected in the target photo.")
-                }
-                is SwapResult.Failed -> _uiState.update {
-                    it.copy(isProcessing = false, errorMessage = outcome.message)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isProcessing = false, errorMessage = "Swap failed: ${e.message}")
                 }
             }
         }
@@ -87,6 +97,15 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
             _uiState.update {
                 it.copy(savedMessage = if (uri != null) "Saved to gallery" else "Failed to save")
             }
+        }
+    }
+
+    fun prepareShare(onReady: (Intent) -> Unit) {
+        val bitmap = _uiState.value.resultBitmap ?: return
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val uri = withContext(Dispatchers.IO) { ImageUtils.shareableUriFor(context, bitmap) }
+            onReady(ImageUtils.shareIntentFor(uri))
         }
     }
 

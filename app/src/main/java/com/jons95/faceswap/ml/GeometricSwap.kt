@@ -11,6 +11,7 @@ import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
+import android.graphics.RectF
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceLandmark
@@ -30,8 +31,6 @@ object GeometricSwap {
         val srcPoints = anchorPoints(sourceFace) ?: return null
         val dstPoints = anchorPoints(targetFace) ?: return null
 
-        // 1. Compute the affine transform that maps the source face's anchor points
-        //    (eyes + mouth center) onto the target face's anchor points.
         val matrix = Matrix()
         val solved = matrix.setPolyToPoly(
             floatArrayOf(srcPoints[0].x, srcPoints[0].y, srcPoints[1].x, srcPoints[1].y, srcPoints[2].x, srcPoints[2].y),
@@ -42,23 +41,22 @@ object GeometricSwap {
         )
         if (!solved) return null
 
-        // 2. Warp the *entire* source bitmap through that matrix onto a layer the
-        //    same size as the target, so the source face lands in the right place.
-        val result = targetBitmap.copy(targetBitmap.config ?: Bitmap.Config.ARGB_8888, true)
+        val result = targetBitmap.copy(Bitmap.Config.ARGB_8888, true) ?: return null
         val warpedSource = Bitmap.createBitmap(result.width, result.height, Bitmap.Config.ARGB_8888)
         Canvas(warpedSource).drawBitmap(sourceBitmap, matrix, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
 
-        // 3. Build a feathered mask from the target face's contour so the composited
-        //    region fades smoothly into the surrounding photo instead of showing a hard edge.
         val mask = buildFeatheredMask(result.width, result.height, targetFace)
 
-        // 4. Color-match the warped source region to the target's local skin tone,
-        //    then composite it through the mask.
         val matched = colorMatch(warpedSource, result, mask, targetFace.boundingBox)
+        if (matched !== warpedSource) warpedSource.recycle()
 
         val maskedLayer = applyMask(matched, mask)
+        matched.recycle()
+        mask.recycle()
+
         val canvas = Canvas(result)
         canvas.drawBitmap(maskedLayer, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG))
+        maskedLayer.recycle()
         return result
     }
 
@@ -74,7 +72,7 @@ object GeometricSwap {
     }
 
     private fun buildFeatheredMask(width: Int, height: Int, face: Face): Bitmap {
-        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
+        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(mask)
         val contour = face.getContour(FaceContour.FACE)?.points
         val path = Path()
@@ -83,17 +81,17 @@ object GeometricSwap {
             for (i in 1 until contour.size) path.lineTo(contour[i].x, contour[i].y)
             path.close()
         } else {
-            // Fallback: an oval over the bounding box, expanded slightly.
             val box = face.boundingBox
             val expand = box.width() * 0.08f
             path.addOval(
-                box.left - expand, box.top - expand, box.right + expand, box.bottom + expand,
+                RectF(box.left - expand, box.top - expand, box.right + expand, box.bottom + expand),
                 Path.Direction.CW
             )
         }
+        val blurRadius = max(1f, face.boundingBox.width() * 0.12f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.WHITE
-            maskFilter = BlurMaskFilter(face.boundingBox.width() * 0.12f, BlurMaskFilter.Blur.NORMAL)
+            maskFilter = BlurMaskFilter(blurRadius, BlurMaskFilter.Blur.NORMAL)
         }
         canvas.drawPath(path, paint)
         return mask
