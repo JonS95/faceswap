@@ -1,0 +1,991 @@
+================================================================================
+        COMPLETE GUIDE: BUILDING A FACE SWAP ANDROID APP
+        From Zero to APK on GitHub
+        Written: 2026-11-17
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+  1. Project Overview
+  2. Existing Open-Source Projects You Can Build On
+  3. Technology Stack Recommendation
+  4. Development Environment Setup
+  5. Step-by-Step: Building the App
+  6. Machine Learning Models for On-Device Face Swap
+  7. Building the APK
+  8. Publishing to GitHub with APK Release
+  9. Testing Checklist
+  10. Legal and Ethical Considerations
+  11. Resources and Links
+
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Goal: Build an Android app that swaps faces in photos, running entirely
+on-device (no cloud/server needed). The user picks two photos (or two
+faces in one photo), and the app swaps their faces intelligently.
+
+Key Requirements:
+  - Runs locally on the phone (no internet needed for face swap)
+  - Detects faces automatically
+  - Aligns and blends faces naturally
+  - Works on common Android devices (Android 8.0+)
+  - Produces a shareable result image
+  - Open source, hosted on GitHub with downloadable APK
+
+
+================================================================================
+2. EXISTING OPEN-SOURCE PROJECTS YOU CAN BUILD ON
+================================================================================
+
+Before building from scratch, consider these existing open-source projects.
+Each has trade-offs. I have ranked them by usefulness for your goal.
+
+--- MOST RELEVANT (mobile/on-device) ---
+
+A) MobileFSGAN
+   Repository: https://github.com/HoiM/MobileFSGAN
+   License:    Check repo (academic paper companion)
+   What:       Lightweight face swap model designed for mobile devices.
+               Uses ~1% of parameters compared to desktop models.
+               Companion to ICME 2022 paper.
+   Pros:       Specifically designed for phones. Small model size.
+   Cons:       No pre-built Android app. You need to convert the model
+               to TensorFlow Lite or ONNX format yourself. Training
+               requires multi-GPU hardware. No releases published.
+   Use it if:  You want the best on-device performance and are willing
+               to do model conversion work.
+
+B) FaceFusion
+   Repository: https://github.com/facefusion/facefusion
+   License:    OpenRAIL-AS (responsible AI license - check restrictions)
+   What:       The most actively maintained open-source face swap tool.
+               Desktop-focused (Mac/Windows/Linux) but has mobile model
+               sets available on HuggingFace.
+   Pros:       Active development, good quality output, community support.
+   Cons:       Not an Android app - you would need to extract and convert
+               the models. License may restrict commercial use.
+   Use it if:  You want high-quality models and are comfortable porting
+               the pipeline to Android.
+   Mobile models: https://huggingface.co/AbrahamPJ/facefusion-mobile-models
+
+C) InsightFace (inswapper_128)
+   Repository: https://github.com/deepinsight/insightface
+   Website:    https://insightface.ai
+   License:    Code is MIT, but pretrained swap models are NON-COMMERCIAL
+               research only. Commercial use requires a separate license.
+   What:       Industry-standard face analysis toolkit. The inswapper_128
+               model is what most open-source face swap tools use under
+               the hood.
+   Pros:       Best quality. Widely used. Good documentation.
+   Cons:       Model license restricts commercial use. Desktop-focused.
+               Need to convert to mobile format.
+   Use it if:  You are building a personal/research project (not commercial).
+
+--- DESKTOP TOOLS (study their architecture) ---
+
+D) DeepFaceLab
+   Repository: https://github.com/iperov/DeepFaceLab
+   License:    GPL-3.0
+   What:       The original deep learning face swap tool. Very powerful
+               but requires significant GPU for training.
+   Status:     Mature but development has slowed.
+   Use it if:  You want to study how face swap pipelines work.
+
+E) DeepFaceLive
+   Repository: https://github.com/iperov/DeepFaceLive
+   License:    GPL-3.0
+   What:       Real-time face swap for webcams/video calls.
+   Status:     No longer actively maintained. Community forks exist.
+   Use it if:  You want to study real-time face swap approaches.
+
+F) Deep-Live-Cam
+   Repository: Search GitHub for "Deep-Live-Cam" (was trending in 2024)
+   What:       Newer real-time face swap that went viral on GitHub.
+   Use it if:  You want a more recent reference implementation.
+
+--- ANDROID-SPECIFIC (older/partial) ---
+
+G) Android Face Swap with OpenCV
+   Various repos exist searching "android face swap opencv" on GitHub.
+   These are simpler (geometry-based, not AI) but are actual Android apps.
+   Examples:
+     - Search: https://github.com/topics/face-swap?l=java
+     - Search: https://github.com/topics/face-swap?l=kotlin
+   Pros:       Already Android apps. Simpler to understand.
+   Cons:       Lower quality (no deep learning). Often outdated.
+   Use it if:  You want a quick starting point for the Android app shell.
+
+H) OnDevice Face Recognition Android
+   Repository: https://github.com/shubham0204/OnDevice-Face-Recognition-Android
+   License:    Check repo
+   What:       Not face swap, but shows how to run face detection +
+               ML models on Android using MediaPipe and TensorFlow Lite.
+               Updated 2025. Good reference for the detection pipeline.
+   Use it if:  You need a template for on-device face ML on Android.
+
+
+================================================================================
+3. TECHNOLOGY STACK RECOMMENDATION
+================================================================================
+
+For a practical, modern Android face swap app running locally:
+
+Language:           Kotlin (primary) + some C++ for ML inference
+Build System:       Gradle with Kotlin DSL
+Min SDK:            Android 8.0 (API 26)
+Target SDK:         Android 14 (API 34) or Android 15 (API 35)
+UI Framework:       Jetpack Compose (modern) or XML layouts (traditional)
+
+Face Detection:     Google ML Kit Face Detection (free, on-device)
+                    OR MediaPipe Face Detection (open source)
+
+Face Landmarks:     MediaPipe Face Mesh (468 landmarks)
+                    OR ML Kit Face Detection (with landmarks enabled)
+
+Face Swap Model:    Option A - ONNX Runtime Mobile + inswapper model
+                    Option B - TensorFlow Lite + converted MobileFSGAN
+                    Option C - Simple geometric swap (no AI, lower quality)
+
+Image Processing:   OpenCV Android SDK (for alignment, blending, warping)
+Image Loading:      Coil (Kotlin-first image loader)
+Permissions:        Camera, Storage (photo picker doesn't need permission)
+
+
+================================================================================
+4. DEVELOPMENT ENVIRONMENT SETUP
+================================================================================
+
+STEP 4.1: Install Required Software
+------------------------------------
+  [ ] Install Android Studio (latest stable - Ladybug or newer)
+      Download: https://developer.android.com/studio
+
+  [ ] During install, ensure these are selected:
+      - Android SDK
+      - Android SDK Platform-Tools
+      - Android Emulator
+      - At least one System Image (e.g., API 34)
+
+  [ ] Install Git
+      Download: https://git-scm.com/downloads
+      (or use: brew install git  on macOS)
+
+  [ ] Install Java Development Kit (JDK 17)
+      Android Studio usually bundles this.
+      Verify: java -version  (should show 17+)
+
+STEP 4.2: Configure Android Studio
+------------------------------------
+  [ ] Open Android Studio > Settings > SDK Manager
+  [ ] Install SDK for API 34 (Android 14)
+  [ ] Install NDK (Side by side) - needed for OpenCV/native code
+  [ ] Install CMake - needed for native builds
+
+STEP 4.3: Set Up Your GitHub Repository
+-----------------------------------------
+  [ ] Create a new repository on GitHub:
+      - Go to https://github.com/new
+      - Name: FaceSwapApp (or whatever you prefer)
+      - Description: "AI-powered face swap Android app - runs locally"
+      - Public (for open source)
+      - Add .gitignore: Android
+      - Add license: MIT (or your preference)
+      - Create repository
+
+  [ ] Clone it locally:
+      git clone https://github.com/YOUR_USERNAME/FaceSwapApp.git
+      cd FaceSwapApp
+
+
+================================================================================
+5. STEP-BY-STEP: BUILDING THE APP
+================================================================================
+
+PHASE 1: Create the Android Project
+-------------------------------------
+
+STEP 5.1: Create New Project in Android Studio
+  [ ] File > New > New Project
+  [ ] Select "Empty Activity" (Compose version)
+  [ ] Configure:
+      - Name: FaceSwapApp
+      - Package: com.yourname.faceswap
+      - Language: Kotlin
+      - Minimum SDK: API 26 (Android 8.0)
+      - Build configuration language: Kotlin DSL
+  [ ] Click Finish
+  [ ] Copy the generated project files into your cloned Git repo
+      (or create the project directly in the cloned folder)
+
+STEP 5.2: Add Dependencies (build.gradle.kts for app module)
+
+  Add these to your app/build.gradle.kts:
+
+  dependencies {
+      // ML Kit Face Detection (on-device)
+      implementation("com.google.mlkit:face-detection:16.1.7")
+
+      // MediaPipe Face Mesh (for detailed landmarks)
+      implementation("com.google.mediapipe:tasks-vision:0.10.18")
+
+      // ONNX Runtime (for running the face swap model)
+      implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.0")
+
+      // OpenCV Android (for image processing)
+      // Download SDK from https://opencv.org/releases/ and add as module
+      // OR use Maven:
+      implementation("org.opencv:opencv-android:4.10.0")
+
+      // Jetpack Compose (should already be there)
+      implementation("androidx.activity:activity-compose:1.9.3")
+      implementation("androidx.compose.material3:material3:1.3.1")
+
+      // Image loading
+      implementation("io.coil-kt:coil-compose:2.7.0")
+
+      // Coroutines for background processing
+      implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+  }
+
+  Also in android { } block, add:
+
+  android {
+      ...
+      buildFeatures {
+          compose = true
+      }
+      packaging {
+          resources {
+              excludes += "/META-INF/{AL2.0,LGPL2.1}"
+          }
+      }
+  }
+
+
+PHASE 2: Build the UI
+-----------------------
+
+STEP 5.3: Design the Main Screen
+  The app needs these UI elements:
+
+  [ ] Top app bar with title "Face Swap"
+  [ ] Two image slots: "Source Face" and "Target Photo"
+  [ ] Button to pick source image (from gallery)
+  [ ] Button to pick target image (from gallery)
+  [ ] "Swap Faces" button (enabled when both images loaded)
+  [ ] Result display area
+  [ ] "Save" and "Share" buttons for the result
+  [ ] Loading indicator during processing
+  [ ] Optional: camera capture button
+
+  Create these files:
+    app/src/main/java/com/yourname/faceswap/
+      MainActivity.kt          - Main entry point
+      ui/
+        MainScreen.kt          - Main Compose UI
+        ImagePickerCard.kt     - Reusable image picker component
+        ResultScreen.kt        - Shows the swapped result
+
+STEP 5.4: Implement Photo Picker
+  Use the modern Android Photo Picker (no permission needed):
+
+  // In your composable:
+  val pickImage = rememberLauncherForActivityResult(
+      contract = ActivityResultContracts.PickVisualMedia()
+  ) { uri ->
+      uri?.let { selectedImageUri = it }
+  }
+
+  // Launch it:
+  pickImage.launch(PickVisualMediaRequest(
+      mediaType = ActivityResultContracts.PickVisualMedia.ImageOnly
+  ))
+
+
+PHASE 3: Face Detection Pipeline
+----------------------------------
+
+STEP 5.5: Implement Face Detection with ML Kit
+
+  Create: app/src/main/java/com/yourname/faceswap/ml/FaceDetector.kt
+
+  class FaceDetector {
+      private val detector = FaceDetection.getClient(
+          FaceDetectorOptions.Builder()
+              .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+              .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+              .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
+              .build()
+      )
+
+      suspend fun detectFaces(bitmap: Bitmap): List<Face> {
+          val image = InputImage.fromBitmap(bitmap, 0)
+          return suspendCoroutine { continuation ->
+              detector.process(image)
+                  .addOnSuccessListener { faces ->
+                      continuation.resume(faces)
+                  }
+                  .addOnFailureListener { e ->
+                      continuation.resumeWithException(e)
+                  }
+          }
+      }
+  }
+
+STEP 5.6: Implement Face Landmark Extraction
+
+  Extract key points from detected faces:
+  - Eyes (left, right)
+  - Nose
+  - Mouth corners
+  - Jawline contour
+  - Face oval contour
+
+  These landmarks are used to align the faces before swapping.
+
+
+PHASE 4: Face Swap Engine
+---------------------------
+
+You have three approaches. Pick ONE:
+
+--- APPROACH A: AI-Powered (Best Quality, More Complex) ---
+
+STEP 5.7a: Obtain and Convert the Face Swap Model
+
+  Option 1 - Use inswapper_128 (best quality):
+    [ ] Download from InsightFace model zoo
+    [ ] The model is in ONNX format (~500MB)
+    [ ] For mobile, quantize it:
+        python -m onnxruntime.quantization.quantize \
+          --input inswapper_128.onnx \
+          --output inswapper_128_int8.onnx \
+          --quant_format QDQ
+    [ ] This reduces size to ~125MB and speeds up inference
+    [ ] Place in: app/src/main/assets/models/
+
+  Option 2 - Use MobileFSGAN (smaller):
+    [ ] Clone https://github.com/HoiM/MobileFSGAN
+    [ ] Follow their export instructions
+    [ ] Convert to ONNX or TFLite format
+    [ ] Place in: app/src/main/assets/models/
+
+STEP 5.8a: Implement ONNX Runtime Inference
+
+  Create: app/src/main/java/com/yourname/faceswap/ml/FaceSwapModel.kt
+
+  class FaceSwapModel(context: Context) {
+      private val session: OrtSession
+
+      init {
+          val env = OrtEnvironment.getEnvironment()
+          val modelBytes = context.assets.open("models/inswapper_128_int8.onnx")
+              .readBytes()
+          val options = OrtSession.SessionOptions().apply {
+              addNnapi()  // Use Android Neural Networks API for acceleration
+          }
+          session = env.createSession(modelBytes, options)
+      }
+
+      fun swap(sourceFace: Bitmap, targetFace: Bitmap): Bitmap {
+          // 1. Preprocess: resize to 128x128, normalize to [-1,1]
+          // 2. Convert to OnnxTensor
+          // 3. Run inference
+          // 4. Post-process: denormalize, convert back to Bitmap
+          // ... (implementation details depend on model)
+      }
+  }
+
+--- APPROACH B: Geometric Swap (Simpler, Faster, Lower Quality) ---
+
+STEP 5.7b: Implement Geometric Face Swap with OpenCV
+
+  This approach doesn't use AI. It uses traditional computer vision:
+
+  1. Detect face landmarks in both images
+  2. Compute Delaunay triangulation on landmarks
+  3. Warp triangles from source face to target face position
+  4. Apply seamless cloning (Poisson blending) for smooth edges
+
+  Create: app/src/main/java/com/yourname/faceswap/ml/GeometricSwap.kt
+
+  The key OpenCV functions you will use:
+    - Subdiv2D          (Delaunay triangulation)
+    - getAffineTransform (triangle warping)
+    - warpAffine        (apply the warp)
+    - seamlessClone     (blend the face naturally)
+
+  This approach is fast (real-time capable) and small (no model files),
+  but produces lower quality results than AI approaches.
+
+--- APPROACH C: Hybrid (Recommended for Starting) ---
+
+STEP 5.7c: Start with Geometric, Add AI Later
+
+  [ ] Build the app with geometric swap first (Approach B)
+  [ ] Get the full pipeline working end-to-end
+  [ ] Then add an AI model as an optional "HD Mode"
+  [ ] This way you have a working app quickly
+
+
+PHASE 5: Image Processing Pipeline
+------------------------------------
+
+STEP 5.9: Implement the Full Pipeline
+
+  Create: app/src/main/java/com/yourname/faceswap/pipeline/SwapPipeline.kt
+
+  The pipeline runs these steps in order:
+
+  1. DETECT FACES
+     - Run face detection on both source and target images
+     - Validate: at least 1 face in source, at least 1 face in target
+     - If multiple faces found, let user select which to swap
+
+  2. EXTRACT LANDMARKS
+     - Get 68+ facial landmarks for each face
+     - Key points: eyes, nose, mouth, jawline, forehead
+
+  3. ALIGN FACES
+     - Compute affine transformation to align source face to target
+     - Based on eye positions (most stable landmarks)
+     - Rotate, scale, and translate the source face
+
+  4. SWAP/GENERATE
+     - If using AI: feed aligned faces through the neural network
+     - If using geometric: warp triangulated mesh
+
+  5. BLEND
+     - Create a face mask (oval or convex hull of landmarks)
+     - Feather the edges of the mask (Gaussian blur)
+     - Apply seamless clone / Poisson blending
+     - Color-correct to match target skin tone
+
+  6. COMPOSITE
+     - Place the blended face back into the original target image
+     - Final adjustments (brightness, contrast matching)
+
+STEP 5.10: Run Processing on Background Thread
+
+  Use Kotlin coroutines to avoid blocking the UI:
+
+  viewModelScope.launch(Dispatchers.Default) {
+      _uiState.update { it.copy(isProcessing = true) }
+      try {
+          val result = swapPipeline.process(sourceImage, targetImage)
+          _uiState.update { it.copy(
+              resultImage = result,
+              isProcessing = false
+          )}
+      } catch (e: Exception) {
+          _uiState.update { it.copy(
+              error = e.message,
+              isProcessing = false
+          )}
+      }
+  }
+
+
+PHASE 6: Save and Share
+-------------------------
+
+STEP 5.11: Save Result to Gallery
+
+  Use MediaStore to save without needing WRITE_EXTERNAL_STORAGE:
+
+  suspend fun saveToGallery(context: Context, bitmap: Bitmap): Uri {
+      val contentValues = ContentValues().apply {
+          put(MediaStore.Images.Media.DISPLAY_NAME,
+              "faceswap_${System.currentTimeMillis()}.jpg")
+          put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+          put(MediaStore.Images.Media.RELATIVE_PATH,
+              Environment.DIRECTORY_PICTURES + "/FaceSwap")
+      }
+      val uri = context.contentResolver.insert(
+          MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
+      )
+      uri?.let {
+          context.contentResolver.openOutputStream(it)?.use { stream ->
+              bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)
+          }
+      }
+      return uri
+  }
+
+STEP 5.12: Share Result
+
+  val shareIntent = Intent(Intent.ACTION_SEND).apply {
+      type = "image/jpeg"
+      putExtra(Intent.EXTRA_STREAM, savedUri)
+      addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+  }
+  startActivity(Intent.createChooser(shareIntent, "Share Face Swap"))
+
+
+================================================================================
+6. MACHINE LEARNING MODELS FOR ON-DEVICE FACE SWAP
+================================================================================
+
+Here are the ML models involved and where to get them:
+
+FACE DETECTION (pick one):
+  - Google ML Kit Face Detection
+    Free, on-device, bundled via Google Play Services
+    Add: implementation("com.google.mlkit:face-detection:16.1.7")
+
+  - MediaPipe BlazeFace
+    Open source, very fast (sub-millisecond on mobile)
+    Part of MediaPipe Tasks Vision library
+
+FACE LANDMARKS (pick one):
+  - ML Kit returns up to 133 contour points
+  - MediaPipe Face Mesh returns 468 3D landmarks
+    Much more detailed, better for alignment
+
+FACE SWAP MODEL (pick one):
+  - inswapper_128 (ONNX, ~500MB, best quality)
+    From InsightFace. Non-commercial license on pretrained weights.
+    Quantized version: ~125MB
+
+  - MobileFSGAN (needs conversion, ~5-15MB)
+    From https://github.com/HoiM/MobileFSGAN
+    Designed for mobile. Much smaller.
+
+  - SimSwap (ONNX, ~300MB)
+    From https://github.com/neuralchen/SimSwap
+    Can be converted to mobile format.
+
+  - No model (geometric approach)
+    Uses OpenCV only. No download needed. ~1MB total.
+
+RECOMMENDED STARTING COMBINATION:
+  ML Kit (detection) + MediaPipe (landmarks) + Geometric swap (blending)
+  Then upgrade to inswapper or MobileFSGAN later for better quality.
+
+
+================================================================================
+7. BUILDING THE APK
+================================================================================
+
+STEP 7.1: Configure Signing
+-----------------------------
+  Before building a release APK, you need a signing key.
+
+  [ ] Generate a keystore:
+      keytool -genkey -v \
+        -keystore faceswap-release.jks \
+        -keyalg RSA -keysize 2048 \
+        -validity 10000 \
+        -alias faceswap
+
+  [ ] Enter a strong password when prompted
+  [ ] Fill in the certificate details (name, org, etc.)
+  [ ] IMPORTANT: Keep this keystore file safe. If you lose it,
+      you can never update an app signed with it.
+  [ ] DO NOT commit the keystore to Git!
+
+STEP 7.2: Configure Release Build in Gradle
+---------------------------------------------
+  In app/build.gradle.kts:
+
+  android {
+      ...
+      signingConfigs {
+          create("release") {
+              storeFile = file("../faceswap-release.jks")
+              storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+              keyAlias = "faceswap"
+              keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+          }
+      }
+      buildTypes {
+          release {
+              isMinifyEnabled = true
+              isShrinkResources = true
+              proguardFiles(
+                  getDefaultProguardFile("proguard-android-optimize.txt"),
+                  "proguard-rules.pro"
+              )
+              signingConfig = signingConfigs.getByName("release")
+          }
+      }
+  }
+
+STEP 7.3: Add ProGuard Rules
+-------------------------------
+  In app/proguard-rules.pro, add rules to keep ML model classes:
+
+  -keep class com.google.mlkit.** { *; }
+  -keep class com.microsoft.onnxruntime.** { *; }
+  -keep class org.opencv.** { *; }
+
+STEP 7.4: Build the APK
+--------------------------
+  Option A - From Android Studio:
+    [ ] Build > Generate Signed Bundle / APK
+    [ ] Select APK
+    [ ] Choose your keystore
+    [ ] Select "release" build variant
+    [ ] Click Create
+
+  Option B - From command line:
+    [ ] Set environment variables:
+        export KEYSTORE_PASSWORD="your_password"
+        export KEY_PASSWORD="your_key_password"
+
+    [ ] Build:
+        ./gradlew assembleRelease
+
+    [ ] APK location:
+        app/build/outputs/apk/release/app-release.apk
+
+STEP 7.5: Test the Release APK
+---------------------------------
+  [ ] Install on a real device:
+      adb install app/build/outputs/apk/release/app-release.apk
+
+  [ ] Test on emulator too:
+      (Drag and drop the APK onto the emulator window)
+
+  [ ] Verify the app works without debugging enabled
+  [ ] Check that ProGuard hasn't broken anything
+
+
+================================================================================
+8. PUBLISHING TO GITHUB WITH APK RELEASE
+================================================================================
+
+STEP 8.1: Prepare the Repository
+----------------------------------
+  Your repo structure should look like:
+
+  FaceSwapApp/
+  +-- .gitignore              (Android template)
+  +-- README.md               (project description)
+  +-- LICENSE                  (MIT or your choice)
+  +-- build.gradle.kts         (project-level)
+  +-- settings.gradle.kts
+  +-- gradle/
+  +-- app/
+  |   +-- build.gradle.kts    (app-level)
+  |   +-- proguard-rules.pro
+  |   +-- src/
+  |       +-- main/
+  |           +-- AndroidManifest.xml
+  |           +-- assets/
+  |           |   +-- models/  (ML models, if small enough)
+  |           +-- java/com/yourname/faceswap/
+  |           +-- res/
+  +-- .github/
+      +-- workflows/
+          +-- build.yml       (GitHub Actions CI)
+
+STEP 8.2: Set Up .gitignore
+-----------------------------
+  Make sure these are in .gitignore:
+
+  *.jks
+  *.keystore
+  local.properties
+  *.apk
+  *.aab
+  /build
+  /app/build
+  .gradle/
+  .idea/
+  *.iml
+
+  NOTE: APKs are excluded from git tracking but uploaded as
+  GitHub Release assets (see Step 8.5).
+
+STEP 8.3: Push Your Code
+--------------------------
+  git add .
+  git commit -m "Initial commit: Face Swap Android app"
+  git push origin main
+
+STEP 8.4: Set Up GitHub Actions for Automated Builds (Optional but Nice)
+--------------------------------------------------------------------------
+  Create: .github/workflows/build.yml
+
+  name: Build APK
+
+  on:
+    push:
+      branches: [ main ]
+    pull_request:
+      branches: [ main ]
+
+  jobs:
+    build:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Set up JDK 17
+          uses: actions/setup-java@v4
+          with:
+            java-version: '17'
+            distribution: 'temurin'
+
+        - name: Setup Android SDK
+          uses: android-actions/setup-android@v3
+
+        - name: Build Debug APK
+          run: ./gradlew assembleDebug
+
+        - name: Upload APK
+          uses: actions/upload-artifact@v4
+          with:
+            name: debug-apk
+            path: app/build/outputs/apk/debug/app-debug.apk
+
+STEP 8.5: Create a GitHub Release with APK
+--------------------------------------------
+  This is how users will download the installable APK.
+
+  Option A - GitHub web interface:
+    [ ] Go to your repo on GitHub
+    [ ] Click "Releases" (right side)
+    [ ] Click "Create a new release"
+    [ ] Tag: v1.0.0
+    [ ] Title: "Face Swap App v1.0.0"
+    [ ] Description: Write what the app does, features, requirements
+    [ ] Attach binary: Drag your app-release.apk file
+    [ ] Click "Publish release"
+
+  Option B - Using GitHub CLI (gh):
+    # Create a tag first
+    git tag v1.0.0
+    git push origin v1.0.0
+
+    # Create release with APK attached
+    gh release create v1.0.0 \
+      app/build/outputs/apk/release/app-release.apk \
+      --title "Face Swap App v1.0.0" \
+      --notes "Initial release. AI-powered face swap running locally."
+
+  After this, anyone can:
+    1. Go to your GitHub repo
+    2. Click "Releases"
+    3. Download the APK
+    4. Install it on their Android device
+       (they need to enable "Install from unknown sources" in settings)
+
+STEP 8.6: Automate Release APK with GitHub Actions (Advanced)
+--------------------------------------------------------------
+  To automatically build and publish a signed APK when you push a tag:
+
+  Create: .github/workflows/release.yml
+
+  name: Release APK
+
+  on:
+    push:
+      tags: [ 'v*' ]
+
+  jobs:
+    release:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - uses: actions/setup-java@v4
+          with:
+            java-version: '17'
+            distribution: 'temurin'
+
+        - name: Setup Android SDK
+          uses: android-actions/setup-android@v3
+
+        - name: Decode Keystore
+          env:
+            KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          run: echo "$KEYSTORE_BASE64" | base64 -d > faceswap-release.jks
+
+        - name: Build Release APK
+          env:
+            KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+            KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          run: ./gradlew assembleRelease
+
+        - name: Create Release
+          uses: softprops/action-gh-release@v2
+          with:
+            files: app/build/outputs/apk/release/app-release.apk
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  To set this up:
+    [ ] Go to repo Settings > Secrets and variables > Actions
+    [ ] Add these secrets:
+        KEYSTORE_BASE64:    (run: base64 faceswap-release.jks | pbcopy)
+        KEYSTORE_PASSWORD:  (your keystore password)
+        KEY_PASSWORD:       (your key password)
+
+    [ ] Now when you push a tag like v1.0.0, the APK is built and
+        published automatically.
+
+
+================================================================================
+9. TESTING CHECKLIST
+================================================================================
+
+Before releasing, test these scenarios:
+
+FUNCTIONAL TESTS:
+  [ ] Pick source image from gallery
+  [ ] Pick target image from gallery
+  [ ] Detect faces in both images
+  [ ] Handle "no face found" gracefully (show error message)
+  [ ] Handle multiple faces (let user pick)
+  [ ] Perform face swap
+  [ ] Display result
+  [ ] Save result to gallery
+  [ ] Share result
+  [ ] Try with different image sizes (small, large, very large)
+  [ ] Try with different face angles (front, slight turn, profile)
+  [ ] Try with different lighting conditions
+  [ ] Try with glasses, hats, beards
+
+PERFORMANCE TESTS:
+  [ ] Swap completes in under 10 seconds on mid-range phone
+  [ ] App doesn't crash with large images (10+ MP)
+  [ ] Memory usage stays under 500MB during swap
+  [ ] App works on Android 8.0 device
+
+EDGE CASES:
+  [ ] Image with no faces
+  [ ] Image with many faces (5+)
+  [ ] Very small face in image
+  [ ] Face partially out of frame
+  [ ] Same image for source and target
+  [ ] Rotate device during processing
+  [ ] Low storage space on device
+  [ ] App sent to background during processing
+
+DEVICES TO TEST ON:
+  [ ] Low-end phone (2GB RAM, older processor)
+  [ ] Mid-range phone (4-6GB RAM)
+  [ ] High-end phone (8+ GB RAM)
+  [ ] Tablet
+  [ ] Android 8.0 (minimum)
+  [ ] Android 14/15 (latest)
+
+
+================================================================================
+10. LEGAL AND ETHICAL CONSIDERATIONS
+================================================================================
+
+IMPORTANT - Read this before publishing your app:
+
+CONSENT:
+  - Face swap technology can be misused for non-consensual purposes
+  - Consider adding a disclaimer/terms of use in your app
+  - Consider adding a watermark to swapped images
+  - Some jurisdictions have laws about synthetic media
+
+MODEL LICENSES:
+  - InsightFace inswapper_128: Non-commercial research only
+    (pretrained model weights, not the code)
+  - FaceFusion: OpenRAIL-AS license - read the terms carefully
+  - MobileFSGAN: Check the specific license in the repo
+  - OpenCV: Apache 2.0 (permissive, commercial OK)
+  - ML Kit: Free to use per Google's terms
+  - MediaPipe: Apache 2.0
+
+YOUR APP LICENSE:
+  - If you use GPL-3.0 code (e.g., from DeepFaceLab), your app
+    must also be GPL-3.0
+  - MIT and Apache 2.0 are permissive - you can use any license
+  - If using non-commercial model weights, your app cannot be
+    sold commercially
+
+GOOGLE PLAY STORE (if you later want to publish there):
+  - Face-related apps get extra scrutiny
+  - You may need to disclose AI/ML use
+  - Must comply with their Generative AI policy
+  - Expect a longer review process
+
+RECOMMENDED APPROACH:
+  - Use MIT license for your code
+  - Use only permissively licensed dependencies
+  - Add clear attribution in About screen
+  - Add a user agreement about responsible use
+  - Add a visible watermark or metadata tag to outputs
+
+
+================================================================================
+11. RESOURCES AND LINKS
+================================================================================
+
+OFFICIAL DOCUMENTATION:
+  - Android Developers:  https://developer.android.com
+  - Jetpack Compose:     https://developer.android.com/jetpack/compose
+  - ML Kit Face:         https://developers.google.com/ml-kit/vision/face-detection
+  - MediaPipe:           https://developers.google.com/mediapipe
+  - ONNX Runtime Mobile: https://onnxruntime.ai/docs/tutorials/mobile/
+  - OpenCV Android:      https://docs.opencv.org/4.x/d5/df8/tutorial_dev_with_OCV_on_Android.html
+
+OPEN-SOURCE REPOS TO STUDY:
+  - MobileFSGAN:              https://github.com/HoiM/MobileFSGAN
+  - FaceFusion:               https://github.com/facefusion/facefusion
+  - InsightFace:              https://github.com/deepinsight/insightface
+  - OnDevice Face Recognition: https://github.com/shubham0204/OnDevice-Face-Recognition-Android
+  - SimSwap:                  https://github.com/neuralchen/SimSwap
+
+TUTORIALS AND LEARNING:
+  - OpenCV Face Swap Tutorial (Python, concepts transfer to Android):
+    Search "learnopencv face swap" for step-by-step geometric approach
+  - Android ML Kit Codelab:
+    https://codelabs.developers.google.com (search "ML Kit")
+  - MediaPipe Android Tutorial:
+    https://ai.google.dev/edge/mediapipe/framework/getting_started/hello_world_android
+
+TOOLS:
+  - Android Studio:    https://developer.android.com/studio
+  - GitHub CLI (gh):   https://cli.github.com
+  - ONNX Model Zoo:    https://github.com/onnx/models
+
+
+================================================================================
+QUICK START PLAN (If you want to start building today)
+================================================================================
+
+Day 1-2:  Set up Android Studio, create project, build basic UI
+          (two image pickers, swap button, result display)
+
+Day 3-4:  Add ML Kit face detection
+          Verify faces are detected and landmarks extracted
+
+Day 5-7:  Implement geometric face swap using OpenCV
+          (Delaunay triangulation + seamless clone)
+
+Day 8-9:  Polish: error handling, loading states, save/share
+
+Day 10:   Build release APK, test on real devices
+
+Day 11:   Push to GitHub, create release with APK
+
+Day 12+:  Optional: Add AI model for better quality
+          Optional: Add camera capture
+          Optional: Add batch/multiple face swap
+          Optional: Add video face swap
+
+
+================================================================================
+END OF GUIDE
+================================================================================
+
+This guide was written as a detailed roadmap. Each step can be expanded
+into actual code. If you want me to generate the actual source code for
+any specific step, just ask.
+
+The recommended approach is to start with the geometric (OpenCV) method
+to get a working app quickly, then upgrade to AI-powered swap for
+better quality in a later version.
+
+Good luck building!

@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/faceswap-${{ github.ref_name }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/debug/faceswap-${{ github.ref_name }}.apk
+          body: |
+            Debug-signed APK, ready to sideload (enable "Install unknown apps" for your browser/file manager).
+            This is a debug build - not optimized/minified, but fully functional and safe to install for personal use.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
