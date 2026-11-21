@@ -244,12 +244,7 @@ fun MainScreen(viewModel: FaceSwapViewModel) {
                         shape = RoundedCornerShape(16.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                     ) {
-                        val displayBitmap = if (uiState.showOriginal && uiState.targetBitmap != null) {
-                            uiState.targetBitmap
-                        } else {
-                            uiState.resultBitmap
-                        }
-                        displayBitmap?.let { bmp ->
+                        uiState.displayBitmap?.let { bmp ->
                             val alpha by animateFloatAsState(
                                 targetValue = 1f,
                                 label = "result-alpha"
@@ -265,6 +260,14 @@ fun MainScreen(viewModel: FaceSwapViewModel) {
                             )
                         }
                     }
+
+                    EditControls(
+                        adjustments = uiState.adjustments,
+                        expanded = uiState.showEditControls,
+                        onToggle = { viewModel.toggleEditControls() },
+                        onAdjustmentsChanged = { viewModel.onAdjustmentsChanged(it) },
+                        onReset = { viewModel.resetAdjustments() }
+                    )
 
                     // --- Action buttons ---
                     Row(

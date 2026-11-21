@@ -9,6 +9,8 @@ import androidx.lifecycle.viewModelScope
 import com.jons95.faceswap.ml.FaceDetector
 import com.jons95.faceswap.pipeline.SwapPipeline
 import com.jons95.faceswap.pipeline.SwapResult
+import com.jons95.faceswap.util.FaceAdjuster
+import com.jons95.faceswap.util.FaceAdjustments
 import com.jons95.faceswap.util.ImageUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,15 +23,24 @@ data class FaceSwapUiState(
     val sourceUri: Uri? = null,
     val targetUri: Uri? = null,
     val resultBitmap: Bitmap? = null,
+    val adjustedBitmap: Bitmap? = null,
     val targetBitmap: Bitmap? = null,
     val isProcessing: Boolean = false,
     val processingStep: String = "",
     val errorMessage: String? = null,
     val savedMessage: String? = null,
-    val showOriginal: Boolean = false
+    val showOriginal: Boolean = false,
+    val adjustments: FaceAdjustments = FaceAdjustments(),
+    val showEditControls: Boolean = false
 ) {
     val canSwap: Boolean get() = sourceUri != null && targetUri != null && !isProcessing
     val hasResult: Boolean get() = resultBitmap != null
+    val displayBitmap: Bitmap? get() = when {
+        showOriginal && targetBitmap != null -> targetBitmap
+        adjustedBitmap != null -> adjustedBitmap
+        else -> resultBitmap
+    }
+    val saveBitmap: Bitmap? get() = adjustedBitmap ?: resultBitmap
 }
 
 class FaceSwapViewModel(application: Application) : AndroidViewModel(application) {
@@ -42,15 +53,17 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
 
     fun onSourcePicked(uri: Uri) {
         _uiState.update {
-            it.copy(sourceUri = uri, resultBitmap = null, targetBitmap = null,
-                errorMessage = null, savedMessage = null, showOriginal = false)
+            it.copy(sourceUri = uri, resultBitmap = null, adjustedBitmap = null,
+                targetBitmap = null, errorMessage = null, savedMessage = null,
+                showOriginal = false, adjustments = FaceAdjustments(), showEditControls = false)
         }
     }
 
     fun onTargetPicked(uri: Uri) {
         _uiState.update {
-            it.copy(targetUri = uri, resultBitmap = null, targetBitmap = null,
-                errorMessage = null, savedMessage = null, showOriginal = false)
+            it.copy(targetUri = uri, resultBitmap = null, adjustedBitmap = null,
+                targetBitmap = null, errorMessage = null, savedMessage = null,
+                showOriginal = false, adjustments = FaceAdjustments(), showEditControls = false)
         }
     }
 
@@ -60,10 +73,13 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
                 sourceUri = it.targetUri,
                 targetUri = it.sourceUri,
                 resultBitmap = null,
+                adjustedBitmap = null,
                 targetBitmap = null,
                 errorMessage = null,
                 savedMessage = null,
-                showOriginal = false
+                showOriginal = false,
+                adjustments = FaceAdjustments(),
+                showEditControls = false
             )
         }
     }
@@ -132,7 +148,7 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun saveResult() {
-        val bitmap = _uiState.value.resultBitmap ?: return
+        val bitmap = _uiState.value.saveBitmap ?: return
         viewModelScope.launch {
             val context = getApplication<Application>()
             val uri = withContext(Dispatchers.IO) { ImageUtils.saveToGallery(context, bitmap) }
@@ -143,11 +159,40 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun prepareShare(onReady: (Intent) -> Unit) {
-        val bitmap = _uiState.value.resultBitmap ?: return
+        val bitmap = _uiState.value.saveBitmap ?: return
         viewModelScope.launch {
             val context = getApplication<Application>()
             val uri = withContext(Dispatchers.IO) { ImageUtils.shareableUriFor(context, bitmap) }
             onReady(ImageUtils.shareIntentFor(uri))
+        }
+    }
+
+    fun toggleEditControls() {
+        _uiState.update { it.copy(showEditControls = !it.showEditControls) }
+    }
+
+    fun onAdjustmentsChanged(adjustments: FaceAdjustments) {
+        _uiState.update { it.copy(adjustments = adjustments) }
+        applyAdjustments(adjustments)
+    }
+
+    fun resetAdjustments() {
+        val defaults = FaceAdjustments()
+        _uiState.update { it.copy(adjustments = defaults, adjustedBitmap = null) }
+    }
+
+    private fun applyAdjustments(adjustments: FaceAdjustments) {
+        val result = _uiState.value.resultBitmap ?: return
+        val target = _uiState.value.targetBitmap ?: return
+        viewModelScope.launch {
+            val adjusted = withContext(Dispatchers.Default) {
+                FaceAdjuster.apply(result, target, adjustments)
+            }
+            _uiState.update { state ->
+                val old = state.adjustedBitmap
+                if (old != null && old !== state.resultBitmap) old.recycle()
+                state.copy(adjustedBitmap = adjusted)
+            }
         }
     }
 
