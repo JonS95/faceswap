@@ -21,11 +21,15 @@ data class FaceSwapUiState(
     val sourceUri: Uri? = null,
     val targetUri: Uri? = null,
     val resultBitmap: Bitmap? = null,
+    val targetBitmap: Bitmap? = null,
     val isProcessing: Boolean = false,
+    val processingStep: String = "",
     val errorMessage: String? = null,
-    val savedMessage: String? = null
+    val savedMessage: String? = null,
+    val showOriginal: Boolean = false
 ) {
     val canSwap: Boolean get() = sourceUri != null && targetUri != null && !isProcessing
+    val hasResult: Boolean get() = resultBitmap != null
 }
 
 class FaceSwapViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,11 +41,35 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<FaceSwapUiState> = _uiState
 
     fun onSourcePicked(uri: Uri) {
-        _uiState.update { it.copy(sourceUri = uri, resultBitmap = null, errorMessage = null, savedMessage = null) }
+        _uiState.update {
+            it.copy(sourceUri = uri, resultBitmap = null, targetBitmap = null,
+                errorMessage = null, savedMessage = null, showOriginal = false)
+        }
     }
 
     fun onTargetPicked(uri: Uri) {
-        _uiState.update { it.copy(targetUri = uri, resultBitmap = null, errorMessage = null, savedMessage = null) }
+        _uiState.update {
+            it.copy(targetUri = uri, resultBitmap = null, targetBitmap = null,
+                errorMessage = null, savedMessage = null, showOriginal = false)
+        }
+    }
+
+    fun swapDirection() {
+        _uiState.update {
+            it.copy(
+                sourceUri = it.targetUri,
+                targetUri = it.sourceUri,
+                resultBitmap = null,
+                targetBitmap = null,
+                errorMessage = null,
+                savedMessage = null,
+                showOriginal = false
+            )
+        }
+    }
+
+    fun toggleOriginal() {
+        _uiState.update { it.copy(showOriginal = !it.showOriginal) }
     }
 
     fun swap() {
@@ -49,42 +77,55 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
         val sourceUri = state.sourceUri ?: return
         val targetUri = state.targetUri ?: return
 
-        _uiState.update { it.copy(isProcessing = true, errorMessage = null, savedMessage = null) }
+        _uiState.update { it.copy(isProcessing = true, processingStep = "Loading photos…",
+            errorMessage = null, savedMessage = null) }
 
         viewModelScope.launch {
             val context = getApplication<Application>()
             try {
+                val (source, target) = withContext(Dispatchers.Default) {
+                    val s = ImageUtils.loadBitmap(context, sourceUri)
+                    val t = ImageUtils.loadBitmap(context, targetUri)
+                    Pair(s, t)
+                }
+                if (source == null || target == null) {
+                    _uiState.update { it.copy(isProcessing = false, processingStep = "",
+                        errorMessage = "Could not load one of the photos.") }
+                    return@launch
+                }
+
+                _uiState.update { it.copy(processingStep = "Detecting faces…") }
                 val outcome = withContext(Dispatchers.Default) {
-                    val source = ImageUtils.loadBitmap(context, sourceUri)
-                    val target = ImageUtils.loadBitmap(context, targetUri)
-                    if (source == null || target == null) {
-                        SwapResult.Failed("Could not load one of the photos.")
-                    } else {
-                        pipeline.run(source, target)
-                    }
+                    pipeline.run(source, target)
                 }
 
                 when (outcome) {
                     is SwapResult.Success -> _uiState.update {
-                        it.copy(isProcessing = false, resultBitmap = outcome.bitmap)
+                        it.copy(isProcessing = false, processingStep = "",
+                            resultBitmap = outcome.bitmap, targetBitmap = target)
                     }
                     is SwapResult.NoFaceInSource -> _uiState.update {
-                        it.copy(isProcessing = false, errorMessage = "No face detected in the source photo.")
+                        it.copy(isProcessing = false, processingStep = "",
+                            errorMessage = "No face detected in the source photo. Try a clearer front-facing photo.")
                     }
                     is SwapResult.NoFaceInTarget -> _uiState.update {
-                        it.copy(isProcessing = false, errorMessage = "No face detected in the target photo.")
+                        it.copy(isProcessing = false, processingStep = "",
+                            errorMessage = "No face detected in the target photo. Try a clearer front-facing photo.")
                     }
                     is SwapResult.Failed -> _uiState.update {
-                        it.copy(isProcessing = false, errorMessage = outcome.message)
+                        it.copy(isProcessing = false, processingStep = "",
+                            errorMessage = outcome.message)
                     }
                 }
             } catch (e: OutOfMemoryError) {
                 _uiState.update {
-                    it.copy(isProcessing = false, errorMessage = "Photos are too large. Try smaller images.")
+                    it.copy(isProcessing = false, processingStep = "",
+                        errorMessage = "Photos are too large. Try smaller images.")
                 }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(isProcessing = false, errorMessage = "Swap failed: ${e.message}")
+                    it.copy(isProcessing = false, processingStep = "",
+                        errorMessage = "Swap failed: ${e.message}")
                 }
             }
         }
@@ -96,7 +137,7 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
             val context = getApplication<Application>()
             val uri = withContext(Dispatchers.IO) { ImageUtils.saveToGallery(context, bitmap) }
             _uiState.update {
-                it.copy(savedMessage = if (uri != null) "Saved to gallery" else "Failed to save")
+                it.copy(savedMessage = if (uri != null) "Saved to gallery!" else "Failed to save")
             }
         }
     }
@@ -108,6 +149,10 @@ class FaceSwapViewModel(application: Application) : AndroidViewModel(application
             val uri = withContext(Dispatchers.IO) { ImageUtils.shareableUriFor(context, bitmap) }
             onReady(ImageUtils.shareIntentFor(uri))
         }
+    }
+
+    fun clearMessage() {
+        _uiState.update { it.copy(errorMessage = null, savedMessage = null) }
     }
 
     fun reset() {

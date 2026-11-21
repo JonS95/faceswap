@@ -68,7 +68,9 @@ object ImageUtils {
 
     private fun rotateBitmap(bitmap: Bitmap, degrees: Int): Bitmap {
         val matrix = Matrix().apply { postRotate(degrees.toFloat()) }
-        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (rotated !== bitmap) bitmap.recycle()
+        return rotated
     }
 
     /** Saves a bitmap to the device gallery via MediaStore. Returns the resulting Uri, or null on failure. */
