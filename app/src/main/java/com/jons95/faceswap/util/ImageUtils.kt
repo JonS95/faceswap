@@ -22,9 +22,9 @@ object ImageUtils {
         val resolver = context.contentResolver
 
         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { stream ->
-            android.graphics.BitmapFactory.decodeStream(stream, null, bounds)
-        } ?: return null
+        val boundsStream = resolver.openInputStream(uri) ?: return null
+        boundsStream.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
 
         val sampleSize = calculateSampleSize(bounds.outWidth, bounds.outHeight, MAX_DIMENSION)
         val decodeOptions = android.graphics.BitmapFactory.Options().apply { inSampleSize = sampleSize }
